@@ -58,7 +58,7 @@ public class Jugador {
         return true;
     }
 
-    //inicia el turno 
+    //Inicia el turno 
 
     public void iniciarTurno() {
         soporteJugado = false;
@@ -68,7 +68,7 @@ public class Jugador {
         energiaDisponible = true;
     }
 
-    //false si el mazo esta vacio osea el jugador pierde
+    //false si el mazo esta vacio es decir, el jugador pierde
 
     public boolean robar() {
         ClaseCarta c = mazo.robar();
@@ -107,9 +107,26 @@ public class Jugador {
 
     //cuando se derrota el Pokemon
 
+    //Salen del campo todas las cartas del Pokemon: la actual y las que quedaron debajo (evoluciones)
     public void eliminarActivo() {
-        descarte.add(activo);
+        ClasePokemon carta = activo;
+        while (carta != null) {
+            descarte.add(carta);
+            carta = carta.getAnterior();
+        }
         activo = null;
+    }
+
+    //La evolucion ocupa el lugar (activo o banco) del Pokemon sobre el que se coloco
+    public void reemplazarPokemon(ClasePokemon viejo, ClasePokemon nuevo) {
+        if (activo == viejo) {
+            activo = nuevo;
+            return;
+        }
+        int i = banco.indexOf(viejo);
+        if (i >= 0) {
+            banco.set(i, nuevo);
+        }
     }
 
     public void promoverDesdeBanco(int indice) {
@@ -124,11 +141,11 @@ public class Jugador {
         puntosPremio += puntos;
     }
 
-    //Mano 
+    //Mano (para el mulligan solo cuentan los Pokemon basicos)
 
     public boolean tienePokemonEnMano() {
         for (ClaseCarta c : mano) {
-            if (c instanceof ClasePokemon) return true;
+            if (c instanceof ClasePokemon p && p.esBasico()) return true;
         }
         return false;
     }
