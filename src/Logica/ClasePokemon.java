@@ -11,6 +11,9 @@ public class ClasePokemon extends ClaseCarta {
     private final int costoRetirada;
     private final List<ClaseAtaque> ataques;
     private final List<ClaseTipo> energias = new ArrayList<>();
+    //Atributos del mini proyecto 2
+    private ClasePokemon anterior;           // la carta que quedó debajo null si es básico
+    private boolean listoParaEvolucionar;    // falso hasta que empiece el próximo turno de su dueño
 
     public ClasePokemon(String nombre, ClaseTipo tipo, int ps,
                         int costoRetirada, List<ClaseAtaque> ataques) {
@@ -85,4 +88,30 @@ public class ClasePokemon extends ClaseCarta {
     public List<ClaseTipo> getEnergias(){
         return Collections.unmodifiableList(energias); 
     }
+    //Metodos del mini proyecto 2
+
+    public boolean esBasico(){ 
+        return true; 
+    }
+    public String getEtapa(){ 
+        return "Basico"; 
+    }
+
+    public void heredarEstado(ClasePokemon previa) {            // Copia el daño y las energías
+        int danio = previa.getPsMax() - previa.getPsActual();   //de la carta anterior a esta carta
+        psActual = psMax - danio;
+        energias.addAll(previa.getEnergias());
+        anterior = previa;
+    }
+
+    public ClasePokemon getAnterior(){
+        return anterior; 
+        }
+    public boolean isListoParaEvolucionar(){ 
+        return listoParaEvolucionar; 
+    }
+    public void habilitarEvolucion(){ 
+        listoParaEvolucionar = true; 
+    }
+
 }
