@@ -6,11 +6,17 @@ import java.util.Random;
 
 public class Partida {
     private static final int PREMIOS_PARA_GANAR = 3;
+    private static final int MAX_BANCO = 2;
+
+    // Resultado de intentar una accion: exito o el motivo por el que no se pudo.
+    public record Resultado(boolean exito, String mensaje) { }
 
     private final Jugador[] jugadores;
     private final Vista vista;
-    private int turno = 0;
+    private final int[] turnosJugados = new int[2]; // turnos propios de cada jugador
+    private int turno = 0;                          // turno global (1, 2, 3...)
     private int indiceActual;
+    private boolean turnoEnCurso = false;
     private Jugador ganador;
     private String motivo;
 
@@ -20,191 +26,400 @@ public class Partida {
         this.indiceActual = new Random().nextInt(2);
     }
 
+    //La vista tambien se usa para narrar eventos (registro) y para las elecciones de las cartas.
     public Vista getVista() {
         return vista;
     }
 
-    public void jugar() {
+    public Jugador getJugadorActual() {
+        return jugadores[indiceActual];
+    }
+
+    public Jugador getRival() {
+        return jugadores[1 - indiceActual];
+    }
+
+    public int getTurno() {
+        return turno;
+    }
+
+    public boolean isTurnoEnCurso() {
+        return turnoEnCurso;
+    }
+
+    public boolean hayGanador() {
+        return ganador != null;
+    }
+
+    public Jugador getGanador() {
+        return ganador;
+    }
+
+    //Condicion de victoria, lista para mostrar en el mensaje final.
+    public String getMotivo() {
+        return motivo;
+    }
+
+    public int getPremiosParaGanar() {
+        return PREMIOS_PARA_GANAR;
+    }
+
+    //Prepara a ambos jugadores. Si la vista quiere una transicion entre ellos, puede llamar prepararJugador() por separado.
+    public void iniciarPartida() {
         for (Jugador j : jugadores) {
             prepararJugador(j);
         }
-        while (ganador == null) {
-            turno++;
-            Jugador actual = jugadores[indiceActual];
-            Jugador rival = jugadores[1 - indiceActual];
-
-            actual.iniciarTurno();
-            if (!actual.robar()) {
-                terminar(rival, actual.getNombre() + " no tiene cartas para robar");
-                break;
-            }
-            jugarTurno(actual, rival);
-            indiceActual = 1 - indiceActual;
-        }
-        vista.anunciarGanador(ganador, motivo);
     }
 
-    private void prepararJugador(Jugador j) {
+    //Reparte la mano inicial (con mulligan) y pide el activo y el banco inicial.
+    public void prepararJugador(Jugador j) {
         int mulligans = j.repartirManoInicial();
         if (mulligans > 0) {
-            vista.mostrarMensaje(j.getNombre() + " hizo " + mulligans + " mulligan(s) por no tener Pokemon basico.");
+            vista.mostrarMensaje(j.getNombre() + " hizo " + mulligans + " mulligans por no tener Pokemon basico.");
         }
-        List<ClasePokemon> basicos = pokemonEnMano(j);
+        List<ClasePokemon> basicos = pokemonBasicosEnMano(j);
         int i = vista.elegirOpcion(j.getNombre() + ": elige tu Pokemon activo", nombres(basicos), false);
         j.colocarActivo(basicos.get(i));
 
-        while (j.getBanco().size() < 2) {
-            basicos = pokemonEnMano(j);
+        while (j.getBanco().size() < MAX_BANCO) {
+            basicos = pokemonBasicosEnMano(j);
             if (basicos.isEmpty()) break;
-            i = vista.elegirOpcion(j.getNombre() + ": Colocas un Pokemon en el banco?", nombres(basicos), true);
+            i = vista.elegirOpcion(j.getNombre() + ": colocas un Pokemon en el banco?", nombres(basicos), true);
             if (i < 0) break;
             j.colocarEnBanco(basicos.get(i));
         }
     }
 
-    private void jugarTurno(Jugador j, Jugador rival) {
-        boolean terminado = false;
-        while (!terminado && ganador == null) {
-            vista.mostrarCampo(j, rival, turno);
-            switch (vista.leerAccion()) {
-                case 1 -> adjuntarEnergia(j);
-                case 2 -> jugarEntrenador(j);
-                case 3 -> colocarEnBanco(j);
-                case 4 -> retirar(j);
-                case 5 -> terminado = atacar(j, rival);
-                case 6 -> terminado = true;
+    public void comenzarTurno() {
+        if (ganador != null || turnoEnCurso) return;
+
+        Jugador actual = getJugadorActual();
+        turno++;
+        turnosJugados[indiceActual]++;
+        turnoEnCurso = true;
+
+        actual.iniciarTurno();
+
+        // Un Pokemon solo puede evolucionar si ya estaba en juego al empezar el turno,
+        // y nadie evoluciona en su primer turno.
+        if (turnosJugados[indiceActual] >= 2) {
+            for (ClasePokemon p : actual.getPokemonEnJuego()) {
+                p.habilitarEvolucion();
             }
         }
-    }
 
-    private void adjuntarEnergia(Jugador j) {
-        if (!j.isEnergiaDisponible()) {
-            vista.mostrarMensaje("Ya usaste la energia de este turno.");
+        if (!actual.robar()) {
+            turnoEnCurso = false;
+            terminar(getRival(), actual.getNombre() + " no tiene cartas para robar");
             return;
         }
-        List<ClasePokemon> destinos = j.getPokemonEnJuego();
-        int i = vista.elegirOpcion("A que Pokemon adjuntas la energia?", nombres(destinos), true);
-        if (i >= 0) {
-            j.adjuntarEnergia(destinos.get(i));
-            vista.mostrarMensaje("Energia " + j.getZonaEnergia().getSimbolo() + " adjuntada a " + destinos.get(i).getNombre() + ".");
-        }
+        vista.mostrarMensaje("- Turno " + turno + ": " + actual.getNombre() + " -");
     }
 
-    private void jugarEntrenador(Jugador j) {
-        List<CartaEntrenador> entrenadores = new ArrayList<>();
-        for (ClaseCarta c : j.getMano()) {
-            if (c instanceof CartaEntrenador e) entrenadores.add(e);
-        }
-        if (entrenadores.isEmpty()) {
-            vista.mostrarMensaje("No tienes cartas de entrenador en la mano.");
-            return;
-        }
-        List<String> nombres = new ArrayList<>();
-        for (CartaEntrenador e : entrenadores) {
-            nombres.add(e.getNombre() + (e instanceof Soporte ? " (Soporte)" : " (Objeto)"));
-        }
-        int i = vista.elegirOpcion("Que carta de entrenador juegas?", nombres, true);
-        if (i < 0) return;
+    public Resultado pasarTurno() {
+        Resultado r = validarTurnoActivo();
+        if (!r.exito()) return r;
+        vista.mostrarMensaje(getJugadorActual().getNombre() + " pasa el turno.");
+        cerrarTurno();
+        return ok();
+    }
 
-        CartaEntrenador carta = entrenadores.get(i);
+    private void cerrarTurno() {
+        turnoEnCurso = false;
+        indiceActual = 1 - indiceActual;
+    }
+
+    // Accion: adjuntar energia
+
+    public Resultado validarAdjuntarEnergia() {
+        Resultado r = validarTurnoActivo();
+        if (!r.exito()) return r;
+        if (!getJugadorActual().isEnergiaDisponible()) {
+            return error("Ya usaste la energia de este turno.");
+        }
+        return ok();
+    }
+
+    public Resultado adjuntarEnergia(ClasePokemon destino) {
+        Resultado r = validarAdjuntarEnergia();
+        if (!r.exito()) return r;
+        Jugador j = getJugadorActual();
+        if (destino == null || !j.getPokemonEnJuego().contains(destino)) {
+            return error("Elige uno de tus Pokemon en juego.");
+        }
+        ClaseTipo tipo = j.getZonaEnergia();
+        j.adjuntarEnergia(destino);
+        vista.mostrarMensaje("Energia " + tipo.getSimbolo() + " adjuntada a " + destino.getNombre() + ".");
+        return ok();
+    }
+
+    // Accion: jugar carta de entrenador
+
+    public Resultado validarJugarEntrenador(CartaEntrenador carta) {
+        Resultado r = validarTurnoActivo();
+        if (!r.exito()) return r;
+        Jugador j = getJugadorActual();
+        if (carta == null || !j.getMano().contains(carta)) {
+            return error("Esa carta no esta en tu mano.");
+        }
         if (carta instanceof Soporte && j.isSoporteJugado()) {
-            vista.mostrarMensaje("Solo puedes jugar 1 carta de Soporte por turno.");
-            return;
+            return error("Solo puedes jugar 1 carta de Soporte por turno.");
         }
+        return ok();
+    }
+
+    public Resultado jugarEntrenador(CartaEntrenador carta) {
+        Resultado r = validarJugarEntrenador(carta);
+        if (!r.exito()) return r;
+        Jugador j = getJugadorActual();
+
         j.quitarDeMano(carta);
         if (carta.activar(j, this)) {
             j.descartar(carta);
             if (carta instanceof Soporte) j.marcarSoporteJugado();
-        } else {
-            j.agregarAMano(carta);
+            return ok();
         }
+        j.agregarAMano(carta);
+        return error("No puedes usar " + carta.getNombre() + " ahora.");
     }
 
-    private void colocarEnBanco(Jugador j) {
-        if (j.getBanco().size() >= 2) {
-            vista.mostrarMensaje("Tu banco esta lleno.");
-            return;
+    // Accion: colocar Pokemon basico en el banco
+
+    public Resultado validarColocarEnBanco() {
+        Resultado r = validarTurnoActivo();
+        if (!r.exito()) return r;
+        Jugador j = getJugadorActual();
+        if (j.getBanco().size() >= MAX_BANCO) {
+            return error("Tu banco esta lleno.");
         }
-        List<ClasePokemon> basicos = pokemonEnMano(j);
-        if (basicos.isEmpty()) {
-            vista.mostrarMensaje("No tienes Pokemon en la mano.");
-            return;
+        if (pokemonBasicosEnMano(j).isEmpty()) {
+            return error("No tienes Pokemon basicos en la mano.");
         }
-        int i = vista.elegirOpcion("Que Pokemon colocas en el banco?", nombres(basicos), true);
-        if (i >= 0) j.colocarEnBanco(basicos.get(i));
+        return ok();
     }
 
-    private void retirar(Jugador j) {
+    public Resultado colocarEnBanco(ClasePokemon pokemon) {
+        Resultado r = validarColocarEnBanco();
+        if (!r.exito()) return r;
+        Jugador j = getJugadorActual();
+        if (pokemon == null || !j.getMano().contains(pokemon)) {
+            return error("Esa carta no esta en tu mano.");
+        }
+        if (!pokemon.esBasico()) {
+            return error(pokemon.getNombre() + " es una evolucion: solo entra en juego evolucionando.");
+        }
+        j.colocarEnBanco(pokemon);
+        vista.mostrarMensaje(pokemon.getNombre() + " pasa al banco de " + j.getNombre() + ".");
+        return ok();
+    }
+
+    // Accion: evolucionar Pokemon
+
+    //Pokemon en juego sobre los que se puede colocar esta carta de evolucion en este momento.
+    public List<ClasePokemon> getObjetivosEvolucion(ClaseEvolucion carta) {
+        List<ClasePokemon> objetivos = new ArrayList<>();
+        for (ClasePokemon p : getJugadorActual().getPokemonEnJuego()) {
+            if (p.getNombre().equals(carta.getEvolucionaDe()) && p.isListoParaEvolucionar()) {
+                objetivos.add(p);
+            }
+        }
+        return objetivos;
+    }
+
+    //Para habilitar el boton "Evolucionar Pokemon": hay alguna evolucion en mano que se pueda usar.
+    public Resultado validarEvolucionar() {
+        Resultado r = validarTurnoActivo();
+        if (!r.exito()) return r;
+        if (turnosJugados[indiceActual] == 1) {
+            return error("No puedes evolucionar en tu primer turno.");
+        }
+        boolean hayEvolucionEnMano = false;
+        for (ClaseCarta c : getJugadorActual().getMano()) {
+            if (c instanceof ClaseEvolucion e) {
+                hayEvolucionEnMano = true;
+                if (!getObjetivosEvolucion(e).isEmpty()) return ok();
+            }
+        }
+        if (!hayEvolucionEnMano) {
+            return error("No tienes cartas de evolucion en la mano.");
+        }
+        return error("Ninguna de tus evoluciones puede usarse ahora (el Pokemon base no esta en juego, entro este turno o ya evoluciono).");
+    }
+
+    public Resultado validarEvolucion(ClaseEvolucion carta, ClasePokemon objetivo) {
+        Resultado r = validarTurnoActivo();
+        if (!r.exito()) return r;
+        Jugador j = getJugadorActual();
+        if (turnosJugados[indiceActual] == 1) {
+            return error("No puedes evolucionar en tu primer turno.");
+        }
+        if (carta == null || !j.getMano().contains(carta)) {
+            return error("Esa carta no esta en tu mano.");
+        }
+        if (objetivo == null || !j.getPokemonEnJuego().contains(objetivo)) {
+            return error("Elige uno de tus Pokemon en juego.");
+        }
+        if (!carta.getEvolucionaDe().equals(objetivo.getNombre())) {
+            return error(carta.getNombre() + " solo evoluciona de " + carta.getEvolucionaDe() + ".");
+        }
+        if (!objetivo.isListoParaEvolucionar()) {
+            return error(objetivo.getNombre() + " no puede evolucionar este turno (entro en juego o ya evoluciono).");
+        }
+        return ok();
+    }
+
+    public Resultado evolucionar(ClaseEvolucion carta, ClasePokemon objetivo) {
+        Resultado r = validarEvolucion(carta, objetivo);
+        if (!r.exito()) return r;
+        Jugador j = getJugadorActual();
+
+        carta.heredarEstado(objetivo);          // conserva energias y dano, PS segun la evolucion
+        j.quitarDeMano(carta);
+        j.reemplazarPokemon(objetivo, carta);   // ocupa el lugar (activo o banco) del Pokemon base
+        vista.mostrarMensaje(objetivo.getNombre() + " evoluciona a " + carta.getNombre()
+                + " (" + carta.getPsActual() + "/" + carta.getPsMax() + " PS).");
+        return ok();
+    }
+
+    // Accion: retirar Pokemon activo
+
+    public Resultado validarRetirar() {
+        Resultado r = validarTurnoActivo();
+        if (!r.exito()) return r;
+        Jugador j = getJugadorActual();
         if (j.getBanco().isEmpty()) {
-            vista.mostrarMensaje("No tienes Pokemon en el banco.");
-            return;
+            return error("No tienes Pokemon en el banco.");
         }
         if (!j.puedeRetirar()) {
-            vista.mostrarMensaje("Necesitas " + j.getCostoRetiradaEfectivo() + " energia(s) adjunta(s) para retirar.");
-            return;
+            return error("Necesitas " + j.getCostoRetiradaEfectivo() + " energia(s) adjunta(s) para retirar a "
+                    + j.getActivo().getNombre() + ".");
         }
-        int i = vista.elegirOpcion("Que Pokemon pasa a activo? (costo: " + j.getCostoRetiradaEfectivo() + " energia/s)",
-                nombres(j.getBanco()), true);
-        if (i >= 0) j.retirarActivo(i);
+        return ok();
     }
 
-    private boolean atacar(Jugador j, Jugador rival) {
-        if (turno == 1) {
-            vista.mostrarMensaje("El primer jugador no puede atacar en su primer turno.");
-            return false;
+    public Resultado retirar(int indiceBanco) {
+        Resultado r = validarRetirar();
+        if (!r.exito()) return r;
+        Jugador j = getJugadorActual();
+        if (indiceBanco < 0 || indiceBanco >= j.getBanco().size()) {
+            return error("Elige un Pokemon de tu banco.");
         }
-        ClasePokemon atacante = j.getActivo();
-        List<String> opciones = new ArrayList<>();
-        for (ClaseAtaque a : atacante.getAtaques()) opciones.add(a.toString());
-        int i = vista.elegirOpcion("Elige un ataque", opciones, true);
-        if (i < 0) return false;
+        String saliente = j.getActivo().getNombre();
+        int costo = j.getCostoRetiradaEfectivo();
+        j.retirarActivo(indiceBanco);
+        vista.mostrarMensaje(saliente + " se retira (costo " + costo + ") y " + j.getActivo().getNombre()
+                + " pasa a ser el activo.");
+        return ok();
+    }
 
-        ClaseAtaque ataque = atacante.getAtaques().get(i);
-        if (!atacante.puedeAtacar(ataque)) {
-            vista.mostrarMensaje("No tienes las energias necesarias para " + ataque.getNombre() + ".");
-            return false;
+    // Accion: atacar
+
+    //Para habilitar el boton "Atacar" (antes de elegir cual ataque).
+    public Resultado validarAtacar() {
+        Resultado r = validarTurnoActivo();
+        if (!r.exito()) return r;
+        if (turno == 1) {
+            return error("El primer jugador no puede atacar en su primer turno.");
         }
+        if (getJugadorActual().getActivo() == null) {
+            return error("No tienes Pokemon activo.");
+        }
+        if (getRival().getActivo() == null) {
+            return error("El rival no tiene Pokemon activo.");
+        }
+        return ok();
+    }
+
+    //Para habilitar cada ataque en la lista de ataques del Pokemon activo.
+    public Resultado validarAtaque(int indiceAtaque) {
+        Resultado r = validarAtacar();
+        if (!r.exito()) return r;
+        ClasePokemon atacante = getJugadorActual().getActivo();
+        if (indiceAtaque < 0 || indiceAtaque >= atacante.getAtaques().size()) {
+            return error("Elige un ataque valido.");
+        }
+        ClaseAtaque ataque = atacante.getAtaques().get(indiceAtaque);
+        if (!atacante.puedeAtacar(ataque)) {
+            return error(atacante.getNombre() + " no tiene la energia necesaria para " + ataque.getNombre() + ".");
+        }
+        return ok();
+    }
+
+    //Ataca con el Pokemon activo. Despues de atacar el turno termina.
+    public Resultado atacar(int indiceAtaque) {
+        Resultado r = validarAtaque(indiceAtaque);
+        if (!r.exito()) return r;
+
+        Jugador j = getJugadorActual();
+        Jugador rival = getRival();
+        ClasePokemon atacante = j.getActivo();
         ClasePokemon defensor = rival.getActivo();
+        ClaseAtaque ataque = atacante.getAtaques().get(indiceAtaque);
+
         int danio = ataque.getDanioBase();
-        if (defensor.getTipo().esDebilA(atacante.getTipo())) {
+        boolean debil = defensor.getTipo().esDebilA(atacante.getTipo());
+        if (debil) {
             danio += 20;
-            vista.mostrarMensaje("Es super efectivo! +20 de danio.");
         }
         defensor.recibirDanio(danio);
-        vista.mostrarMensaje(atacante.getNombre() + " usa " + ataque.getNombre() + " y hace " + danio + " de danio a " + defensor.getNombre() + ".");
+        vista.mostrarMensaje(atacante.getNombre() + " usa " + ataque.getNombre() + " y hace " + danio
+                + " de danio a " + defensor.getNombre() + (debil ? " (es super efectivo, +20)." : "."));
 
         if (defensor.estaDerrotado()) {
             resolverDerrota(j, rival);
         }
-        return true;
+        if (ganador == null) {
+            cerrarTurno();
+        }
+        return ok();
     }
 
     private void resolverDerrota(Jugador atacante, Jugador defensor) {
         ClasePokemon derrotado = defensor.getActivo();
         int premio = derrotado.getPuntosPremio();
         atacante.sumarPremio(premio);
-        defensor.eliminarActivo();
-        vista.mostrarMensaje(derrotado.getNombre() + " fue derrotado. " + atacante.getNombre() + " gana " + premio + " punto(s) de premio.");
+        defensor.eliminarActivo(); // sale la carta y todas las de su cadena de evolucion
+        vista.mostrarMensaje(derrotado.getNombre() + " fue derrotado. " + atacante.getNombre()
+                + " gana " + premio + " punto(s) de premio.");
 
         if (atacante.getPuntosPremio() >= PREMIOS_PARA_GANAR) {
             terminar(atacante, "acumulo " + PREMIOS_PARA_GANAR + " puntos de premio");
         } else if (defensor.getBanco().isEmpty()) {
             terminar(atacante, "el rival se quedo sin Pokemon en juego");
         } else {
-            int i = vista.elegirOpcion(defensor.getNombre() + ": elige tu nuevo Pokemon activo", nombres(defensor.getBanco()), false);
+            int i = vista.elegirOpcion(defensor.getNombre() + ": elige tu nuevo Pokemon activo",
+                    nombres(defensor.getBanco()), false);
             defensor.promoverDesdeBanco(i);
+            vista.mostrarMensaje(defensor.getNombre() + " pone a " + defensor.getActivo().getNombre() + " como activo.");
         }
     }
+
+    // Utilidades internas
 
     private void terminar(Jugador g, String razon) {
         ganador = g;
         motivo = razon;
     }
 
-    private List<ClasePokemon> pokemonEnMano(Jugador j) {
+    private Resultado validarTurnoActivo() {
+        if (ganador != null) return error("La partida ya termino.");
+        if (!turnoEnCurso) return error("El turno todavia no ha comenzado.");
+        return ok();
+    }
+
+    private static Resultado ok() {
+        return new Resultado(true, "");
+    }
+
+    private static Resultado error(String mensaje) {
+        return new Resultado(false, mensaje);
+    }
+
+    //Solo los Pokemon basicos pueden salir de la mano al campo (RF8).
+    private List<ClasePokemon> pokemonBasicosEnMano(Jugador j) {
         List<ClasePokemon> lista = new ArrayList<>();
         for (ClaseCarta c : j.getMano()) {
-            if (c instanceof ClasePokemon p) lista.add(p);
+            if (c instanceof ClasePokemon p && p.esBasico()) lista.add(p);
         }
         return lista;
     }
