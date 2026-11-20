@@ -12,7 +12,7 @@ public class ClasePokemon extends ClaseCarta {
     private final List<ClaseAtaque> ataques;
     private final List<ClaseTipo> energias = new ArrayList<>();
     //Atributos del mini proyecto 2
-    private ClasePokemon anterior;           // la carta que quedó debajo null si es básico
+    private ClasePokemon anterior;           // la carta que quedo debajo null si es basico
     private boolean listoParaEvolucionar;    // falso hasta que empiece el próximo turno de su dueño
 
     public ClasePokemon(String nombre, ClaseTipo tipo, int ps,
@@ -53,7 +53,7 @@ public class ClasePokemon extends ClaseCarta {
         }
     }
 
-    // El costo incoloro se paga con cualquier energía los demás con su mismo tipo
+    // El costo incoloro se paga con cualquier energia los demas con su mismo tipo
     public boolean puedeAtacar(ClaseAtaque ataque) {
         if (ataque.getTipoCosto() == ClaseTipo.INCOLORO) {
             return energias.size() >= ataque.getCosto();
@@ -65,7 +65,7 @@ public class ClasePokemon extends ClaseCarta {
         return coinciden >= ataque.getCosto();
     }
 
-    // Los Pokémon-ex sobrescriben este método para dar 2.
+    // Los Pokemon-ex sobrescriben este metodo para dar 2.
     public int getPuntosPremio() {
         return 1;
     }
@@ -97,7 +97,7 @@ public class ClasePokemon extends ClaseCarta {
         return "Basico"; 
     }
 
-    public void heredarEstado(ClasePokemon previa) {            // Copia el daño y las energías
+    public void heredarEstado(ClasePokemon previa) {            // Copia el daño y las energias
         int danio = previa.getPsMax() - previa.getPsActual();   //de la carta anterior a esta carta
         psActual = psMax - danio;
         energias.addAll(previa.getEnergias());

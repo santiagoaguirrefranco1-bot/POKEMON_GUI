@@ -15,7 +15,7 @@ public class Mazo {
         calcularTipos();
     }
 
-    //Se ejecuta SOLO UNA VEZ al crear el mazo cuando aun estan las 20 cartas
+    //Se ejecuta solo una vez al crear el mazo cuando aun estan las 20 cartas
     private void calcularTipos() {
         for (ClaseCarta c : cartas) {
             if (c instanceof ClasePokemon p && p.getTipo() != ClaseTipo.INCOLORO && !tiposPokemon.contains(p.getTipo())) {
@@ -27,7 +27,7 @@ public class Mazo {
         }
     }
 
-    //20 cartas maximo 2 copias por nombre minimo 6 Pokémon basicos Todos los Pokemon del taller son basicos así que contamos ClasePokemon
+    //20 cartas, maximo 2 copias por nombre y minimo 6 Pokemon basicos (las evoluciones no cuentan como basicos)
     public boolean esValido() {
         if (cartas.size() != 20) return false;
         Map<String, Integer> copias = new HashMap<>();
@@ -39,7 +39,7 @@ public class Mazo {
             } else {
                 copias.put(nombre, 1);
             }
-            if (c instanceof ClasePokemon) pokemon++;
+            if (c instanceof ClasePokemon p && p.esBasico()) pokemon++;
         }
         for (int n : copias.values()) {
             if (n > 2) return false;
@@ -72,7 +72,7 @@ public class Mazo {
     //Busca el primer Pokemon basico lo saca del mazo y lo devuelve, null si no hay
     public ClasePokemon sacarPokemonBasico() {
         for (int i = 0; i < cartas.size(); i++) {
-            if (cartas.get(i) instanceof ClasePokemon p) {
+            if (cartas.get(i) instanceof ClasePokemon p && p.esBasico()) {
                 cartas.remove(i);
                 return p;
             }
